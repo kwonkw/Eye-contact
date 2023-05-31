@@ -15,6 +15,7 @@ import android.util.Log
 import android.view.Surface
 import android.view.TextureView
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.programminghut.realtime_object.ml.SsdMobilenetV11Metadata1
@@ -24,13 +25,14 @@ import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
 import java.util.*
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextToSpeech.OnUtteranceCompletedListener {
 
     lateinit var labels: List<String>
     var colors = listOf<Int>(
         Color.BLUE, Color.GREEN, Color.RED, Color.CYAN, Color.GRAY, Color.BLACK,
         Color.DKGRAY, Color.MAGENTA, Color.YELLOW, Color.RED
     )
+
     val paint = Paint()
     lateinit var imageProcessor: ImageProcessor
     lateinit var bitmap: Bitmap
@@ -42,10 +44,20 @@ class MainActivity : AppCompatActivity() {
     lateinit var model: SsdMobilenetV11Metadata1
 
     lateinit var textToSpeech: TextToSpeech
-    val detectionThresholdCount = 30 // 탐지 인식을 위한 탐지 횟수 임계값
+    val detectionThresholdCount = 60 // 탐지 인식을 위한 탐지 횟수 임계값
     val detectedObjectsCount: HashMap<String, Int> = HashMap() // 탐지된 물체와 탐지 횟수를 저장하는 변수
     val detectedObjects: HashMap<String, Long> = HashMap() // 탐지된 물체와 해당 시간을 저장하는 변수
-    var startTime: Long = 0 // 시작 시간 변수
+    val startTime: Long = 0 // 시작 시간 변수
+    private val ttsQueue: Queue<String> = LinkedList<String>() // TTS 큐
+//    var cropLeft = 200  // 왼쪽
+//    var cropTop = 800  // 위쪽
+//    var cropWidth = 700 // 가로 크기
+//    var cropHeight = 1100 // 세로 크기
+//    val cropLeft = 0  //  왼쪽
+//    val cropTop = 0  // 위쪽
+//    val cropWidth = 0 // 가로 크기
+//    val cropHeight = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -62,7 +74,12 @@ class MainActivity : AppCompatActivity() {
         textureView = findViewById(R.id.textureView)
         textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(p0: SurfaceTexture, p1: Int, p2: Int) {
-                startTime = System.currentTimeMillis() // 시작 시간 저장
+                val ratio = 3f / 4f
+                val width = p1
+                val height = (width / ratio).toInt()
+                textureView.layoutParams.width = width
+                textureView.layoutParams.height = height
+
                 open_camera()
             }
 
@@ -74,22 +91,36 @@ class MainActivity : AppCompatActivity() {
             }
 
             @SuppressLint("SetTextI18n")
-            override fun onSurfaceTextureUpdated(p0: SurfaceTexture) {
+            override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {
                 bitmap = textureView.bitmap!!
                 var image = TensorImage.fromBitmap(bitmap)
                 image = imageProcessor.process(image)
 
-                val outputs = model.process(image)
+                val originalWidth = bitmap.width
+                val originalHeight = bitmap.height
+
+                val cropLeft = originalWidth / 4
+                val cropTop = originalHeight / 3
+                val cropWidth = originalWidth / 2
+                val cropHeight = originalHeight * 2/3
+
+                // 크롭된 이미지 생성
+                val croppedBitmap =
+                    Bitmap.createBitmap(bitmap, cropLeft, cropTop, cropWidth, cropHeight)
+                var croppedImage = TensorImage.fromBitmap(croppedBitmap)
+                croppedImage = imageProcessor.process(croppedImage)
+
+                val outputs = model.process(croppedImage)
                 val locations = outputs.locationsAsTensorBuffer.floatArray
                 val classes = outputs.classesAsTensorBuffer.floatArray
                 val scores = outputs.scoresAsTensorBuffer.floatArray
                 val numberOfDetections = outputs.numberOfDetectionsAsTensorBuffer.floatArray
 
-                var mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-                val canvas = Canvas(mutable)
+                var mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val canvas = Canvas(mutableBitmap)
 
-                val h = mutable.height
-                val w = mutable.width
+                val h = mutableBitmap.height
+                val w = mutableBitmap.width
                 paint.textSize = h / 15f
                 paint.strokeWidth = h / 85f
                 var x = 0
@@ -104,31 +135,35 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 for (disappearedObject in disappearedObjects) {
-                    speakText(disappearedObject + "가 사라졌습니다.")
                     detectedObjects.remove(disappearedObject)
+                    val detectionCount = detectedObjectsCount[disappearedObject]!!
                     detectedObjectsCount.remove(disappearedObject) // 이전 탐지 횟수 맵에서 삭제
+                    if (detectionCount > detectionThresholdCount) {
+                        speakText(disappearedObject + "통과.")
+                        Log.d("DetectionCount", "$disappearedObject: $detectionCount")
+                    }
                 }
 
                 scores.forEachIndexed { index, fl ->
                     x = index
                     x *= 4
                     if (fl > 0.5) {
-                        paint.setColor(colors.get(index))
+                        paint.color = colors[index]
                         paint.style = Paint.Style.STROKE
                         canvas.drawRect(
                             RectF(
-                                locations.get(x + 1) * w,
-                                locations.get(x) * h,
-                                locations.get(x + 3) * w,
-                                locations.get(x + 2) * h
+                                locations[x + 1] * w,
+                                locations[x] * h,
+                                locations[x + 3] * w,
+                                locations[x + 2] * h
                             ), paint
                         )
                         paint.style = Paint.Style.FILL
-                        val label = labels.get(classes.get(index).toInt())
+                        val label = labels[classes[index].toInt()]
                         canvas.drawText(
-                            label + " " + fl.toString(),
-                            locations.get(x + 1) * w,
-                            locations.get(x) * h,
+                            "$label $fl",
+                            locations[x + 1] * w,
+                            locations[x] * h,
                             paint
                         )
 
@@ -136,20 +171,28 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                imageView.setImageBitmap(mutable)
+                // 크롭된 영역 그리기
+                val cropRect = RectF(
+                    cropLeft.toFloat(),
+                    cropTop.toFloat(),
+                    (cropLeft + cropWidth).toFloat(),
+                    (cropTop + cropHeight).toFloat()
+                )
+                paint.color = Color.RED
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 5f
+                canvas.drawRect(cropRect, paint)
 
-                // 탐지된 물체 인식 음성 출력
-//                speakRecognizedObjects()
+                // 결과 이미지를 ImageView에 표시
+                runOnUiThread {
+                    imageView.setImageBitmap(mutableBitmap)
+                }
             }
         }
 
-        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
-        textToSpeech = TextToSpeech(this) { status ->
-            if (status != TextToSpeech.ERROR) {
-                textToSpeech.language = Locale.KOREAN
-            }
-        }
+        textToSpeech = TextToSpeech(this, this)
     }
 
     override fun onDestroy() {
@@ -207,48 +250,48 @@ class MainActivity : AppCompatActivity() {
             val lastDetectionTime = detectedObjects[detectedObject]!!
             val timeElapsed = currentTime - lastDetectionTime
 
-            if (timeElapsed >= 3000) {
-                // Object not detected for 3 seconds, remove from the map
-                detectedObjects.remove(detectedObject)
-                detectedObjectsCount.remove(detectedObject)
-                speakText(detectedObject + "가 사라졌습니다.")
-            } else {
-                // Object detected within 3 seconds, update the detection time
-                detectedObjects[detectedObject] = currentTime
-                val detectionCount = detectedObjectsCount[detectedObject]!! + 1
-                detectedObjectsCount[detectedObject] = detectionCount
+            detectedObjects[detectedObject] = currentTime
+            val detectionCount = detectedObjectsCount[detectedObject]!! + 1
+            detectedObjectsCount[detectedObject] = detectionCount
+            Log.d("DetectionCount", "$detectedObject: $detectionCount")
 
-                Log.d("DetectionCount", "$detectedObject: $detectionCount")
-
-                if (detectionCount == detectionThresholdCount) {
-                    speakText(detectedObject + "를 인식했습니다.")
-                }
+            if (detectionCount == detectionThresholdCount) {
+                addTextToQueue(detectedObject + "발견.")
             }
         } else {
             // New object detected
             detectedObjects[detectedObject] = currentTime
             detectedObjectsCount[detectedObject] = 1
-
         }
     }
 
+    private fun addTextToQueue(text: String) {
+        ttsQueue.add(text)
+        processTtsQueue()
+    }
 
-
-
-
-
-    private fun speakRecognizedObjects() {
-        for (detectedObject in detectedObjects.keys) {
-            val detectionCount = detectedObjectsCount[detectedObject]!!
-            if (detectionCount == 1) {
-                // 탐지 횟수가 1인 경우에만 음성 출력
-                speakText(detectedObject + "를 인식했습니다.")
-            }
+    private fun processTtsQueue() {
+        if (ttsQueue.isNotEmpty() && !textToSpeech.isSpeaking) {
+            val text = ttsQueue.poll()
+            speakText(text)
         }
     }
 
     private fun speakText(text: String) {
-        textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        textToSpeech.speak(text, TextToSpeech.QUEUE_ADD, null, null)
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            textToSpeech.setOnUtteranceCompletedListener(this)
+            textToSpeech.language = Locale.KOREAN
+        } else {
+            Log.e("TTS", "Initialization failed")
+        }
+    }
+
+    override fun onUtteranceCompleted(utteranceId: String?) {
+        processTtsQueue()
     }
 
     override fun onRequestPermissionsResult(
@@ -259,6 +302,16 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (grantResults[0] != PackageManager.PERMISSION_GRANTED) {
             get_permission()
+        }
+    }
+
+    var lastTimeBackPressed: Long = 0
+    override fun onBackPressed() {
+        if (System.currentTimeMillis() - lastTimeBackPressed >= 1500) {
+            lastTimeBackPressed = System.currentTimeMillis()
+            Toast.makeText(this, "'뒤로' 버튼을 한번 더 누르시면 종료됩니다.", Toast.LENGTH_LONG).show()
+        } else {
+            finish()
         }
     }
 }
