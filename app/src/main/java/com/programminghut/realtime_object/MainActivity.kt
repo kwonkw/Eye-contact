@@ -150,20 +150,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextToSpe
                     if (fl > 0.5) {
                         paint.color = colors[index]
                         paint.style = Paint.Style.STROKE
+                        val left = locations[x + 1] * cropWidth + cropLeft
+                        val top = locations[x] * cropHeight + cropTop
+                        val right = locations[x + 3] * cropWidth + cropLeft
+                        val bottom = locations[x + 2] * cropHeight + cropTop
                         canvas.drawRect(
                             RectF(
-                                locations[x + 1] * w,
-                                locations[x] * h,
-                                locations[x + 3] * w,
-                                locations[x + 2] * h
+                                left,
+                                top,
+                                right,
+                                bottom
                             ), paint
                         )
                         paint.style = Paint.Style.FILL
                         val label = labels[classes[index].toInt()]
                         canvas.drawText(
                             "$label $fl",
-                            locations[x + 1] * w,
-                            locations[x] * h,
+                            left,
+                            top,
                             paint
                         )
 
@@ -190,7 +194,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextToSpe
             }
         }
 
-            cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
         textToSpeech = TextToSpeech(this, this)
     }
