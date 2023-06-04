@@ -86,7 +86,13 @@ public class MainActivity extends AppCompatActivity {
             textToSpeech.shutdown();
         }
     }
-
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+        }
+    }
     private long lastTimeBackPressed = 0;
 
     @Override

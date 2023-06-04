@@ -3,9 +3,11 @@ package com.programminghut.realtime_object;
 import android.content.Intent;
 import android.media.AudioManager;
 import android.os.Bundle;
+import android.os.Handler;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.view.View;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -57,8 +59,54 @@ public class use_solution extends AppCompatActivity {
                 Log.d("TTS", "onError: " + utteranceId);
             }
         });
-    }
 
+        View view = findViewById(android.R.id.content);
+        view.setOnTouchListener(new View.OnTouchListener() {
+            private int touchCount = 0;
+            private long startTime = 0;
+            private Handler handler = new Handler();
+            private Runnable runnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (touchCount == 1) {
+                        // Single tap detected
+                        recreate();
+                    } else if (touchCount == 2) {
+                        // Double tap detected
+                        Intent intent = new Intent(use_solution.this, detection.class);
+                        startActivity(intent);
+                    }
+                    touchCount = 0;
+                }
+            };
+
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                int action = event.getActionMasked();
+                long currentTime = System.currentTimeMillis();
+
+                if (action == MotionEvent.ACTION_DOWN) {
+                    if (currentTime - startTime > 500) {
+                        touchCount = 0;
+                    }
+                    startTime = currentTime;
+                    touchCount++;
+
+                    handler.removeCallbacks(runnable);
+                    handler.postDelayed(runnable, 500);
+                }
+                return true;
+            }
+        });
+
+    }
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+        }
+    }
     @Override
     protected void onDestroy() {
         super.onDestroy();
