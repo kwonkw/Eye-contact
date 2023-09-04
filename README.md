@@ -12,7 +12,9 @@
      (1) AI HUB 인도보행 영상 , 직접 데이터 수집 -> 29,522개 활용<br>
      (2) 경량화된 모델, 빠른 속도로 실시간 객체 감지를 지원하는 **YOLOv5s** 모델 활용<br>
      <br>
-    2) 신호등 탐지 모델<br>
-      (1) https://github.com/samuelyu2002/ImVisible -> 5,959개 활용<br>
-      (2) **LYTNet** 모델 활용<br>
-   
+     
+   2) 신호등 탐지 모델<br>
+     (1) https://github.com/samuelyu2002/ImVisible -> 5,959개 활용<br>
+     (2) **LYTNet** 모델 활용<br>
+     <br>
+
